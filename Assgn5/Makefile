@@ -5,6 +5,6 @@ libmsocket.a: mysocket.c
 clean: 
 	rm -f *.o *.a test
 
-test:
+test: test.c libmsocket.a
 	gcc -o test test.c -L. -l_libmsocket
 
