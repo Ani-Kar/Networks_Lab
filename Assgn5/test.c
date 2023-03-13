@@ -1,5 +1,5 @@
 #include "mysocket.h"
 void main() 
 {
-  fun();
+  printf("Hello\n");
 }
