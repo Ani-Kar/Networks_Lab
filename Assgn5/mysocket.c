@@ -15,8 +15,8 @@ struct MySocket my_socket(int domain, int type, int protocol)
         perror("Error Creating Socket");
         exit(1);
     }
-    pthread_create(mySocket.R, NULL, Recieve_Thread, mySocket.ReceiveMessage);
-    pthread_create(mySocket.S, NULL, Send_Thread, mySocket.SendMessage);
+    pthread_create(&mySocket.R, NULL, Recieve_Thread, mySocket.ReceiveMessage);
+    pthread_create(&mySocket.S, NULL, Send_Thread, mySocket.SendMessage);
 
     return mySocket;
 }
@@ -64,4 +64,20 @@ int my_close(int fd)
         perror("Unable to Close");
         exit(1);
     }
+}
+
+ssize_t my_send(int sockfd, const void *buf, size_t len, int flags){
+    ;
+}
+
+ssize_t my_recv(int sockfd, void *buf, size_t len, int flags){
+    ;
+}
+
+void* Recieve_Thread(void* params){
+    ;
+}
+
+void* Send_Thread(void* params){
+    ;
 }

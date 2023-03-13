@@ -4,6 +4,7 @@
 #include<sys/types.h>
 #include<sys/socket.h>
 #include<stdlib.h>
+#include<unistd.h>
 #include<stdio.h>
 #include<pthread.h>
 
@@ -26,13 +27,13 @@ int my_connect(int sockfd, const struct sockaddr *addr,socklen_t addrlen);
 
 ssize_t my_recv(int sockfd, void *buf, size_t len, int flags);
 
-ssize_t send(int sockfd, const void *buf, size_t len, int flags);
+ssize_t my_send(int sockfd, const void *buf, size_t len, int flags);
 
 int my_close(int fd);
 
-void Recieve_Thread(char **ReceiveMessage);
+void* Recieve_Thread(void* params);
 
-void Send_Thread(char **SendMessage);
+void* Send_Thread(void* params);
 
 #endif
 
