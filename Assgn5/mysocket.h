@@ -11,6 +11,8 @@
 
 #define SOCK_MyTCP 100
 #define MAX_TABLE_ENTRIES 10
+#define MAXSIZE 1000
+#define min(a,b) (a>b?b:a)
 
 struct MySOcket_Struct;
 extern pthread_mutex_t recieveBuffer;
@@ -48,6 +50,10 @@ int my_close(int fd);
 void* Recieve_Thread(void* params);
 
 void* Send_Thread(void* params);
+
+int get_size(char * message);
+
+char *extractMessage(char *message, int currSize);
 
 #endif
 

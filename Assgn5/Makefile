@@ -8,3 +8,9 @@ clean:
 test: test.c libmsocket.a
 	gcc -o test test.c -L. -l_libmsocket
 
+server: server.c libmsocket.a
+	gcc -o server server.c -L. -l_libmsocket
+
+client: client.c libmsocket.a
+	gcc -o client client.c -L. -l_libmsocket
+
