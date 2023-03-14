@@ -3,7 +3,7 @@ libmsocket.a: mysocket.c
 	ar rcs lib_libmsocket.a mysocket.o
 
 clean: 
-	rm -f *.o *.a test
+	rm -f *.o *.a test client server
 
 test: test.c libmsocket.a
 	gcc -o test test.c -L. -l_libmsocket
