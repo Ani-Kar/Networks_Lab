@@ -7,15 +7,29 @@
 #include<unistd.h>
 #include<stdio.h>
 #include<pthread.h>
+#include<string.h>
 
 #define SOCK_MyTCP 100
-struct MySocket{
-    int sockfd;
+#define MAX_TABLE_ENTRIES 10
+
+struct MySOcket_Struct;
+extern pthread_mutex_t recieveBuffer;
+extern pthread_mutex_t sendBuffer;
+extern pthread_cond_t recieveUpdated;
+extern pthread_cond_t SendUpdated;
+extern struct MySocket_Struct mySocket;
+
+struct MySocket_Struct{
+    int sockFDServer;
+    int sockFDClient;
+    int isServer;
     pthread_t R,S;
     char **SendMessage, **ReceiveMessage;
+    int sendTableSize;
+    int receiveTableSize;
 };
 
-struct MySocket my_socket(int domain, int type, int protocol);
+int my_socket(int domain, int type, int protocol);
 
 int my_bind(int sockfd, const struct sockaddr *addr,socklen_t addrlen);
 
