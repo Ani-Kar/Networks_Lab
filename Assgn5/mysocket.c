@@ -46,6 +46,8 @@ int my_socket(int domain, int type, int protocol)
 
     mySocket.sockFDClient = -1;
     mySocket.isServer = 0;
+    mySocket.sendTableSize = 0;
+    mySocket.receiveTableSize = 0;
 
     mySocket.ReceiveMessage = (char **)malloc(sizeof(char *) * 10);
     mySocket.SendMessage = (char **)malloc(sizeof(char *) * 10);
@@ -141,6 +143,17 @@ int my_close(int fd)
         perror("Unable to Close");
         return -1;
     }
+    for (int i = 0; i < MAX_TABLE_ENTRIES; i++)
+    {
+        free(mySocket.ReceiveMessage[i]);
+        free(mySocket.SendMessage[i]);
+    }
+    free(mySocket.ReceiveMessage);
+    free(mySocket.SendMessage);
+
+    pthread_join(mySocket.R, NULL);
+    pthread_join(mySocket.S, NULL);
+
     return 0;
 }
 
@@ -173,6 +186,7 @@ ssize_t my_send(int sockfd, const void *buf, size_t len, int flags)
         pthread_cond_wait(&SendUpdated, &sendBuffer);
     }
     mySocket.SendMessage[mySocket.sendTableSize++] = newMessage;
+    pthread_cond_signal(&SendUpdated);
     pthread_mutex_unlock(&sendBuffer);
     return len;
 }
@@ -193,10 +207,10 @@ ssize_t my_recv(int sockfd, void *buf, size_t len, int flags)
     }
     free(mySocket.ReceiveMessage[mySocket.receiveTableSize - 1]);
     mySocket.receiveTableSize--;
+    pthread_cond_signal(&recieveUpdated);
     pthread_mutex_unlock(&recieveBuffer);
 
-    char *buffer = (char *)malloc(sizeof(char) * 5050);
-    buffer = buf;
+    char *buffer = buf;
     int i = 0;
     while (message[i] != '#')
     {
@@ -208,7 +222,7 @@ ssize_t my_recv(int sockfd, void *buf, size_t len, int flags)
     i = i + 4;
     for (; i < min(len, size); i++)
     {
-        buffer[i] = message[i + 4 + strlen(size_char)];
+        buffer[i - 4 - strlen(size_char)] = message[i];
     }
     return min(len, size);
 }
@@ -223,6 +237,10 @@ void *Recieve_Thread(void *params)
     while (1)
     {
         int n = recv(mySocket.sockFDClient, buffer, MAXSIZE, 0);
+        if (n == 0 || mySocket.sockFDClient == -1)
+        {
+            exit(0);
+        }
         currSize += n;
         message = (char *)realloc(message, currSize);
         for (int i = pastSize; i < currSize; i++)
@@ -254,6 +272,8 @@ void *Send_Thread(void *params)
     while (1)
     {
         sleep(5);
+        if (mySocket.sockFDClient == -1)
+            exit(0);
         pthread_mutex_lock(&sendBuffer);
         while (mySocket.sendTableSize < 1)
         {
@@ -274,7 +294,10 @@ void *Send_Thread(void *params)
                 }
                 send(mySocket.sockFDClient, buffer, i, 0);
             }
+            free(mySocket.SendMessage[i]);
         }
+        mySocket.sendTableSize = 0;
+
         pthread_cond_signal(&SendUpdated);
         pthread_mutex_unlock(&sendBuffer);
     }
