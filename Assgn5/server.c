@@ -23,12 +23,21 @@ int main()
     int client_len = sizeof(client_addr);
     ClientSock = my_accept(ServSock, (struct sockaddr *)& client_addr, &client_len);
 
-    char message[100];
-    my_recv(ClientSock, message, 100, 0);
+    char message[10000];
+    my_recv(ClientSock, message, 10000, 0);
     printf("Message Recieved_==>  %s\n",message);
-    char *message_ = "Hello World";
-    my_send(ClientSock, message_, strlen(message_)+1, 0);
-    printf("Message Sent\n");
+    my_recv(ClientSock, message, 10000, 0);
+    printf("Message Recieved_==>  %s\n",message);
+    my_recv(ClientSock, message, 10000, 0);
+    printf("Message Recieved_==>  %s\n",message);
+    my_recv(ClientSock, message, 10000, 0);
+    printf("Message Recieved_==>  %s\n",message);
+    my_recv(ClientSock, message, 10000, 0);
+    printf("Message Recieved_==>  %s\n",message);
+    my_recv(ClientSock, message, 10000, 0);
+    printf("Message Recieved_==>  %s\n",message);
+    sleep(50);
+    
     my_close(ServSock);
     return 0;
 }

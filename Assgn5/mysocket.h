@@ -20,6 +20,7 @@ extern pthread_mutex_t recieveBuffer;
 extern pthread_mutex_t sendBuffer;
 extern pthread_cond_t recieveUpdated;
 extern pthread_cond_t SendUpdated;
+extern pthread_mutex_t cout;
 extern struct MySocket_Struct mySocket;
 
 struct MySocket_Struct{

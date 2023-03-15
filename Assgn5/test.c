@@ -1,6 +1,12 @@
 #include "mysocket.h"
 #include <stdio.h>
+int* test(){
+  int * temp ;
+  *temp = 5;
+  return temp;
+}
 void main() 
 {
-  printf("Hello World\n");
+  int * temp = test();
+  printf("%d",*temp);
 }

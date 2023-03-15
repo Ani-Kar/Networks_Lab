@@ -1,6 +1,6 @@
 libmsocket.a: mysocket.c
 	gcc -c mysocket.c -o mysocket.o
-	ar rcs lib_libmsocket.a mysocket.o
+	ar rcs lib_libmsocket.a mysocket.o -lpthread
 	gcc -o server -g server.c -L. -l_libmsocket
 	gcc -o client -g client.c -L. -l_libmsocket
 

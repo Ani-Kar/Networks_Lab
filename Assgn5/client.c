@@ -18,8 +18,20 @@ int main()
     char *message = "Hello World";
     my_send(sockfd, message, strlen(message)+1, 0);
     printf("Message Sent\n");
-    char message_[100];
-    my_recv(sockfd, message_, 100, 0);
-    printf("Message Recieved==>  %s\n",message_);
+    message = "Hello World_1";
+    my_send(sockfd, message, strlen(message)+1, 0);
+    printf("Message Sent\n");
+    message = "Hello World_2";
+    my_send(sockfd, message, strlen(message)+1, 0);
+    printf("Message Sent\n");
+    message = "Hello World_3";
+    my_send(sockfd, message, strlen(message)+1, 0);
+    printf("Message Sent\n");
+    message = "Hello World_4";
+    my_send(sockfd, message, strlen(message)+1, 0);
+    printf("Message Sent\n");
+    message = "Hello World_5";
+    my_send(sockfd, message, strlen(message)+1, 0); 
+    printf("Message Sent\n");
     my_close(sockfd);
 }
