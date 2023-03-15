@@ -8,6 +8,7 @@
 #include<stdio.h>
 #include<pthread.h>
 #include<string.h>
+#include<poll.h>
 
 #define SOCK_MyTCP 100
 #define MAX_TABLE_ENTRIES 10

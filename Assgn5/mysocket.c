@@ -1,6 +1,7 @@
 #include "mysocket.h"
 
 struct MySocket_Struct mySocket;
+int *a;
 pthread_mutex_t recieveBuffer = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t sendBuffer = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t recieveUpdated = PTHREAD_COND_INITIALIZER;
@@ -35,7 +36,6 @@ char *extractMessage(char *message, int currSize)
 
 int my_socket(int domain, int type, int protocol)
 {
-
     int sockfd;
     if (type != SOCK_MyTCP)
     {
@@ -44,14 +44,14 @@ int my_socket(int domain, int type, int protocol)
     }
     mySocket.sockFDServer = socket(domain, SOCK_STREAM, protocol);
 
-    mySocket.sockFDClient = -1;
+    mySocket.sockFDClient = 0;
     mySocket.isServer = 0;
     mySocket.sendTableSize = 0;
     mySocket.receiveTableSize = 0;
 
     mySocket.ReceiveMessage = (char **)malloc(sizeof(char *) * 10);
     mySocket.SendMessage = (char **)malloc(sizeof(char *) * 10);
-
+    // printf("Testing Something => %p",&a);
     if (mySocket.sockFDServer < 0)
     {
         perror("Error Creating Socket");
@@ -60,6 +60,16 @@ int my_socket(int domain, int type, int protocol)
 
     pthread_create(&mySocket.R, NULL, Recieve_Thread, NULL);
     pthread_create(&mySocket.S, NULL, Send_Thread, NULL);
+
+    printf("Socket Created\n");
+    printf("Details are as Follows:\n");
+    printf("==============================================\n");
+    printf("Socket Server FD: %d\n", mySocket.sockFDServer);
+    printf("Socket Client FD: %d\n", mySocket.sockFDClient);
+    printf("Is Server: %d\n", mySocket.isServer);
+    printf("Send Table Size: %d\n", mySocket.sendTableSize);
+    printf("Receive Table Size: %d\n", mySocket.receiveTableSize);
+    printf("==============================================\n");
 
     return mySocket.sockFDServer;
 }
@@ -111,7 +121,7 @@ int my_connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
 
     mySocket.isServer = 0;
     mySocket.sockFDClient = mySocket.sockFDServer;
-    mySocket.sockFDServer = -1;
+    mySocket.sockFDServer = 0;
 
     if (connect(sockfd, addr, addrlen) < 0)
     {
@@ -143,16 +153,10 @@ int my_close(int fd)
         perror("Unable to Close");
         return -1;
     }
-    for (int i = 0; i < MAX_TABLE_ENTRIES; i++)
-    {
-        free(mySocket.ReceiveMessage[i]);
-        free(mySocket.SendMessage[i]);
-    }
-    free(mySocket.ReceiveMessage);
-    free(mySocket.SendMessage);
-
-    pthread_join(mySocket.R, NULL);
-    pthread_join(mySocket.S, NULL);
+    mySocket.ReceiveMessage != NULL ? free(mySocket.ReceiveMessage) : 0;
+    mySocket.SendMessage != NULL ? free(mySocket.SendMessage) : 0;
+    // pthread_join(mySocket.R, NULL);
+    // pthread_join(mySocket.S, NULL);
 
     return 0;
 }
@@ -174,7 +178,7 @@ ssize_t my_send(int sockfd, const void *buf, size_t len, int flags)
     const char *message = buf;
     for (; i < strlen(messageSize) + 4 + len; i++)
     {
-        newMessage[i] = message[i];
+        newMessage[i] = message[i - 4 - strlen(messageSize)];
     }
     for (; i < strlen(messageSize) + 4 + len + 4; i++)
     {
@@ -185,7 +189,11 @@ ssize_t my_send(int sockfd, const void *buf, size_t len, int flags)
     {
         pthread_cond_wait(&SendUpdated, &sendBuffer);
     }
+    printf("Original Message => %s\n", message);
+    printf("New Message => %s\n", newMessage);
+    mySocket.SendMessage[mySocket.sendTableSize] = (char *)realloc(mySocket.SendMessage[mySocket.sendTableSize], len + 8 * (sizeof(char)) + strlen(messageSize));
     mySocket.SendMessage[mySocket.sendTableSize++] = newMessage;
+    printf("Message in Table=> %s", mySocket.SendMessage[mySocket.sendTableSize - 1]);
     pthread_cond_signal(&SendUpdated);
     pthread_mutex_unlock(&sendBuffer);
     return len;
@@ -200,7 +208,10 @@ ssize_t my_recv(int sockfd, void *buf, size_t len, int flags)
     {
         pthread_cond_wait(&recieveUpdated, &recieveBuffer);
     }
-    message = mySocket.ReceiveMessage[0];
+    message = (char *)malloc(get_size(mySocket.ReceiveMessage[0]) * sizeof(char));
+    for(int i = 0 ; i < get_size(mySocket.ReceiveMessage[0]) ; i++){
+        message[i] = mySocket.ReceiveMessage[0][i];
+    }
     for (int i = 1; i < mySocket.receiveTableSize; i++)
     {
         mySocket.ReceiveMessage[i - 1] = mySocket.ReceiveMessage[i];
@@ -210,6 +221,11 @@ ssize_t my_recv(int sockfd, void *buf, size_t len, int flags)
     pthread_cond_signal(&recieveUpdated);
     pthread_mutex_unlock(&recieveBuffer);
 
+    printf("Message From Table => ");
+    for(int i = 0 ; i < get_size(message) ; i++){
+        printf("%c",message[i]);
+    }
+    printf("\n");
     char *buffer = buf;
     int i = 0;
     while (message[i] != '#')
@@ -220,7 +236,8 @@ ssize_t my_recv(int sockfd, void *buf, size_t len, int flags)
     size_char[i] = '\0';
     int size = atoi(size_char);
     i = i + 4;
-    for (; i < min(len, size); i++)
+    int j = min(len + 4 + strlen(size_char), size + 4 + strlen(size_char));
+    for (; i < j; i++)
     {
         buffer[i - 4 - strlen(size_char)] = message[i];
     }
@@ -234,12 +251,36 @@ void *Recieve_Thread(void *params)
     int isComplete = 0;
     int currSize = 0, pastSize = 0;
     int messageSize;
+    struct pollfd poller;
+    printf("Recieve Thread Started\n");
+    while (mySocket.sockFDClient == 0)
+    {
+        continue;
+    }
+    poller.fd = mySocket.sockFDClient;
+    poller.events = POLLIN;
     while (1)
     {
-        int n = recv(mySocket.sockFDClient, buffer, MAXSIZE, 0);
-        if (n == 0 || mySocket.sockFDClient == -1)
+        if (mySocket.sockFDClient == -1)
         {
-            exit(0);
+            printf("Socket Closed\n");
+            pthread_exit(0);
+        }
+        int poll_return = poll(&poller, 1, 3000);
+        if (poll_return < 0)
+        {
+            perror("Unable to Poll...\n");
+            pthread_exit(0);
+        }
+        if (poll_return = 0)
+        {
+            continue;
+        }
+        int n = recv(mySocket.sockFDClient, buffer, MAXSIZE, 0);
+        printf("Recieved %d bytes\n", n);
+        if (n == 0)
+        {
+            pthread_exit(0);
         }
         currSize += n;
         message = (char *)realloc(message, currSize);
@@ -252,15 +293,41 @@ void *Recieve_Thread(void *params)
         {
             messageSize = get_size(message);
         }
+        printf("Message => ");
+        for(int i = 0 ; i < currSize ; i++)
+        {
+            printf("%c", message[i]);
+        }
+        printf("\n");
+        printf("Current Size => %d\n", currSize);
+        printf("Message Size => %d\n", messageSize);
         if (currSize >= messageSize)
         {
             char *temp = extractMessage(message, currSize);
+            printf("Extracted Message => ");
+            for(int i = 0 ; i < currSize ; i++)
+            {
+                printf("%c", temp[i]);
+            }
+            printf("\n");
             pthread_mutex_lock(&recieveBuffer);
             while (mySocket.receiveTableSize == MAX_TABLE_ENTRIES)
             {
                 pthread_cond_wait(&recieveUpdated, &recieveBuffer);
             }
-            mySocket.ReceiveMessage[mySocket.receiveTableSize++] = message;
+            mySocket.ReceiveMessage[mySocket.receiveTableSize] = (char *)realloc(mySocket.ReceiveMessage[mySocket.receiveTableSize], get_size(temp));
+            for(int i = 0 ; i < get_size(temp) ; i++)
+            {
+                mySocket.ReceiveMessage[mySocket.receiveTableSize][i] = temp[i];
+            }
+            printf("Message in Table => ");
+            for(int i = 0 ; i < get_size(temp) ; i++)
+            {
+                printf("%c", mySocket.ReceiveMessage[mySocket.receiveTableSize][i]);
+            }
+            printf("\n");
+            mySocket.receiveTableSize++;
+            currSize -= messageSize;
             pthread_cond_signal(&recieveUpdated);
             pthread_mutex_unlock(&recieveBuffer);
         }
@@ -269,15 +336,24 @@ void *Recieve_Thread(void *params)
 
 void *Send_Thread(void *params)
 {
+    printf("Send Thread Started\n");
     while (1)
     {
         sleep(5);
+        if(mySocket.sockFDClient == 0)
+            continue;
         if (mySocket.sockFDClient == -1)
-            exit(0);
+        {
+            printf("Socket Closed\n");
+            pthread_exit(0);
+        }
+        printf("Started Iteration in Send Thread\n");
         pthread_mutex_lock(&sendBuffer);
         while (mySocket.sendTableSize < 1)
         {
+            printf("Waiting for Send Table to be Updated\n");
             pthread_cond_wait(&SendUpdated, &sendBuffer);
+            printf("Send Table Updated\n");
         }
         for (int i = 0; i < mySocket.sendTableSize; i++)
         {
@@ -292,6 +368,10 @@ void *Send_Thread(void *params)
                 {
                     buffer[i] = message[curr++];
                 }
+                printf("Message Sent => ");
+                for (int j = 0; j < i; j++)
+                    printf("%c", buffer[j]);
+                printf("\n");
                 send(mySocket.sockFDClient, buffer, i, 0);
             }
             free(mySocket.SendMessage[i]);

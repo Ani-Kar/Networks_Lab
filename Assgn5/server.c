@@ -14,22 +14,21 @@ int main()
     server_addr.sin_addr.s_addr = INADDR_ANY;
     server_addr.sin_port = htons(20000);
 
-    bind(ServSock, (struct sockaddr *) &server_addr, sizeof(server_addr));
+    my_bind(ServSock, (struct sockaddr *) &server_addr, sizeof(server_addr));
     printf("Socket Binded\n");
 
-    listen(ServSock, 10);
+    my_listen(ServSock, 10);
     printf("Socket Listening\n");
 
     int client_len = sizeof(client_addr);
-    ClientSock = accept(ServSock, (struct sockaddr *)& client_addr, &client_len);
+    ClientSock = my_accept(ServSock, (struct sockaddr *)& client_addr, &client_len);
 
     char message[100];
     my_recv(ClientSock, message, 100, 0);
-    printf("Message Recieved==>  %s",message);
+    printf("Message Recieved_==>  %s\n",message);
     char *message_ = "Hello World";
     my_send(ClientSock, message_, strlen(message_)+1, 0);
     printf("Message Sent\n");
-    my_close(ClientSock);
     my_close(ServSock);
     return 0;
 }

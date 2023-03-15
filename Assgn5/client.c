@@ -13,13 +13,13 @@ int main()
     inet_aton("127.0.0.1", &Server_Addr.sin_addr);
     Server_Addr.sin_port = htons(20000);
 
-    connect(sockfd, (struct sockaddr *)&Server_Addr, sizeof(Server_Addr));
+    my_connect(sockfd, (struct sockaddr *)&Server_Addr, sizeof(Server_Addr));
 
     char *message = "Hello World";
-    my_send(sockfd, message, strlen(message), 0);
+    my_send(sockfd, message, strlen(message)+1, 0);
     printf("Message Sent\n");
     char message_[100];
     my_recv(sockfd, message_, 100, 0);
-    printf("Message Recieved==>  %s",message_);
+    printf("Message Recieved==>  %s\n",message_);
     my_close(sockfd);
 }
