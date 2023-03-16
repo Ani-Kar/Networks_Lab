@@ -5,7 +5,6 @@ pthread_mutex_t recieveBuffer = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t sendBuffer = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t recieveUpdated = PTHREAD_COND_INITIALIZER;
 pthread_cond_t SendUpdated = PTHREAD_COND_INITIALIZER;
-pthread_mutex_t cout = PTHREAD_MUTEX_INITIALIZER;
 
 int get_size(char *message)
 {
@@ -18,22 +17,19 @@ int get_size(char *message)
     size_char[i] = '\0';
     return atoi(size_char) + strlen(size_char) + 8;
 }
-char *extractMessage(char *message, int currSize)
+void print_table(char **table, int size)
 {
-    int size = get_size(message);
-    char *temp = (char *)malloc(size * sizeof(char));
+    printf("Table Size => %d\n", size);
     for (int i = 0; i < size; i++)
     {
-        temp[i] = message[i];
+        for (int j = 0; j < get_size(table[i]); j++)
+        {
+            printf("%c", table[i][j]);
+        }
+        printf("\n");
     }
-    for (int i = size; i < currSize; i++)
-    {
-        message[i - size] = message[i];
-    }
-    message = (char *)realloc(message, currSize - size);
-    return temp;
+    printf("\n");
 }
-
 int my_socket(int domain, int type, int protocol)
 {
     int sockfd;
@@ -42,16 +38,25 @@ int my_socket(int domain, int type, int protocol)
         perror("Socket Type Not Supported");
         return -1;
     }
+
     mySocket.sockFDServer = socket(domain, SOCK_STREAM, protocol);
 
     mySocket.sockFDClient = 0;
     mySocket.isServer = 0;
     mySocket.sendTableSize = 0;
     mySocket.receiveTableSize = 0;
+    mySocket.RShouldTerminate = 0;
+    mySocket.SShouldTerminate = 0;
+    mySocket.RshouldWait = 1;
+    mySocket.SshouldWait = 1;
 
     mySocket.ReceiveMessage = (char **)malloc(sizeof(char *) * 10);
+    for(int i=0;i<10;i++)
+        mySocket.ReceiveMessage[i] = (char *)malloc(sizeof(char) * (MESSAGE_MAX_SIZE+12));
     mySocket.SendMessage = (char **)malloc(sizeof(char *) * 10);
-    // printf("Testing Something => %p",&a);
+    for(int i=0;i<10;i++)
+        mySocket.SendMessage[i] = (char *)malloc(sizeof(char) * (MESSAGE_MAX_SIZE+12));
+
     if (mySocket.sockFDServer < 0)
     {
         perror("Error Creating Socket");
@@ -60,18 +65,6 @@ int my_socket(int domain, int type, int protocol)
 
     pthread_create(&mySocket.R, NULL, Recieve_Thread, NULL);
     pthread_create(&mySocket.S, NULL, Send_Thread, NULL);
-
-    pthread_mutex_lock(&cout);
-    printf("Socket Created at location %p\n", &mySocket);
-    printf("Details are as Follows:\n");
-    printf("==============================================\n");
-    printf("Socket Server FD: %d\n", mySocket.sockFDServer);
-    printf("Socket Client FD: %d\n", mySocket.sockFDClient);
-    printf("Is Server: %d\n", mySocket.isServer);
-    printf("Send Table Size: %d\n", mySocket.sendTableSize);
-    printf("Receive Table Size: %d\n", mySocket.receiveTableSize);
-    printf("==============================================\n\n");
-    pthread_mutex_unlock(&cout);
 
     return mySocket.sockFDServer;
 }
@@ -103,7 +96,13 @@ int my_accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
         perror("Socket Error");
         exit(1);
     }
+    pthread_mutex_lock(&recieveBuffer);
+    pthread_mutex_lock(&sendBuffer);
     mySocket.sockFDClient = accept(sockfd, addr, addrlen);
+    mySocket.RshouldWait = 0;
+    mySocket.SshouldWait = 0;
+    pthread_mutex_unlock(&recieveBuffer);
+    pthread_mutex_unlock(&sendBuffer);
     if (mySocket.sockFDClient < 0)
     {
         perror("Error in Accepting");
@@ -120,10 +119,15 @@ int my_connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
         perror("Socket Error");
         exit(1);
     }
-
+    pthread_mutex_lock(&recieveBuffer);
+    pthread_mutex_lock(&sendBuffer);
     mySocket.isServer = 0;
     mySocket.sockFDClient = mySocket.sockFDServer;
     mySocket.sockFDServer = 0;
+    mySocket.RshouldWait = 0;
+    mySocket.SshouldWait = 0;
+    pthread_mutex_unlock(&recieveBuffer);
+    pthread_mutex_unlock(&sendBuffer);
 
     if (connect(sockfd, addr, addrlen) < 0)
     {
@@ -135,83 +139,89 @@ int my_connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
 
 int my_close(int fd)
 {
-    sleep(5);
-    if (mySocket.sockFDServer == fd)
+    
+    printf("Started Close Mechanism\n");
+    pthread_mutex_lock(&recieveBuffer);
+    pthread_mutex_lock(&sendBuffer);
+    if (mySocket.isServer && mySocket.sockFDClient == fd)
     {
-        mySocket.sockFDClient = -1;
+        printf("Sleep Started\n");
+        mySocket.RshouldWait = 1;
+        mySocket.SshouldWait = 1;
     }
-    else if (mySocket.sockFDClient == fd)
+    else if ((mySocket.isServer && mySocket.sockFDServer == fd) || (!mySocket.isServer && mySocket.sockFDClient == fd))
     {
-        mySocket.sockFDClient = -1;
+        printf("Termination started\n");
+        mySocket.RShouldTerminate = 1;
+        mySocket.SShouldTerminate = 1;
     }
     else
     {
         perror("Socket Error");
         exit(1);
     }
-
-    if (close(fd) < 0)
+    pthread_cond_signal(&recieveUpdated);
+    pthread_cond_signal(&SendUpdated);
+    pthread_mutex_unlock(&sendBuffer);
+    pthread_mutex_unlock(&recieveBuffer);
+    if ((mySocket.isServer && mySocket.sockFDServer == fd) || (!mySocket.isServer && mySocket.sockFDClient == fd))
     {
-        perror("Unable to Close");
-        return -1;
+        pthread_join(mySocket.R, NULL);
+        pthread_join(mySocket.S, NULL);
+        for(int i=0;i<10;i++)
+            free(mySocket.ReceiveMessage[i]);
+        for(int i=0;i<10;i++)
+            free(mySocket.SendMessage[i]);
+        free(mySocket.ReceiveMessage);
+        free(mySocket.SendMessage);
     }
-    mySocket.ReceiveMessage != NULL ? free(mySocket.ReceiveMessage) : 0;
-    mySocket.SendMessage != NULL ? free(mySocket.SendMessage) : 0;
-    pthread_join(mySocket.R, NULL);
-    pthread_join(mySocket.S, NULL);
-
-    return 0;
+    printf("Finished Closing\n");
+    sleep(5);
+    return close(fd);
 }
 
 ssize_t my_send(int sockfd, const void *buf, size_t len, int flags)
 {
     char messageSize[50];
     sprintf(messageSize, "%ld", len);
-    char *newMessage = (char *)malloc(len + 8 * (sizeof(char)) + strlen(messageSize));
+    char newMessage [((int)len + 8 + (int)strlen(messageSize))];
     int i = 0;
-    for (; i < strlen(messageSize); i++)
+    for (; i < (int)strlen(messageSize); i++)
     {
         newMessage[i] = messageSize[i];
     }
-    for (; i < strlen(messageSize) + 4; i++)
+    for (; i < (int)strlen(messageSize) + 4; i++)
     {
         newMessage[i] = '#';
     }
     const char *message = buf;
-    for (; i < strlen(messageSize) + 4 + len; i++)
+    for (; i < (int)strlen(messageSize) + 4 + (int)len; i++)
     {
         newMessage[i] = message[i - 4 - strlen(messageSize)];
     }
-    for (; i < strlen(messageSize) + 4 + len + 4; i++)
+    for (; i < (int)strlen(messageSize) + 4 + (int)len + 4; i++)
     {
         newMessage[i] = '#';
     }
+    // printf("IN SEND -> MESSAGE IS ->\n");
+    // for(int i = 0 ; i < get_size(newMessage); i++){
+    //     printf("%c",newMessage[i]);
+    // }
+    // printf("\n");
     pthread_mutex_lock(&sendBuffer);
     while (mySocket.sendTableSize == MAX_TABLE_ENTRIES)
     {
         pthread_cond_wait(&SendUpdated, &sendBuffer);
     }
-    pthread_mutex_lock(&cout);
-    printf("Inside my_send\n");
-    printf("==============================================\n");
-    printf("Original Message => %s\n", message);
-    for (int i = 0; i < len; i++)
+    // printf("hello");
+    // mySocket.SendMessage[mySocket.sendTableSize] = (char *)realloc(mySocket.SendMessage[mySocket.sendTableSize], ((int)len + 8 + (int)strlen(messageSize))*sizeof(char));
+    for (int i = 0; i < ((int)len + 8 + (int)strlen(messageSize))*sizeof(char); i++)
     {
-        printf("%c", message[i]);
+        mySocket.SendMessage[mySocket.sendTableSize][i] = newMessage[i];
     }
-    printf("\n");
-
-    mySocket.SendMessage[mySocket.sendTableSize] = (char *)realloc(mySocket.SendMessage[mySocket.sendTableSize], len + 8 * (sizeof(char)) + strlen(messageSize));
-    mySocket.SendMessage[mySocket.sendTableSize++] = newMessage;
-    printf("Message in Table=> ");
-    for (int i = 0; i < get_size(mySocket.SendMessage[mySocket.sendTableSize - 1]); i++)
-    {
-        printf("%c", mySocket.SendMessage[mySocket.sendTableSize - 1][i]);
-    }
-    printf("\n");
-    printf("Send Table Size: %d\n", mySocket.sendTableSize);
-    printf("==============================================\n\n");
-    pthread_mutex_unlock(&cout);
+    mySocket.sendTableSize++;
+    // printf("IN SEND\n");
+    // print_table(mySocket.SendMessage, mySocket.sendTableSize);
     pthread_cond_signal(&SendUpdated);
     pthread_mutex_unlock(&sendBuffer);
     return len;
@@ -219,17 +229,13 @@ ssize_t my_send(int sockfd, const void *buf, size_t len, int flags)
 
 ssize_t my_recv(int sockfd, void *buf, size_t len, int flags)
 {
-    char *message;
     char size_char[50];
-    
     pthread_mutex_lock(&recieveBuffer);
-    
     while (mySocket.receiveTableSize < 1)
     {
-        printf("HELLLO\n");
         pthread_cond_wait(&recieveUpdated, &recieveBuffer);
     }
-    message = (char *)malloc(get_size(mySocket.ReceiveMessage[0]) * sizeof(char));
+    char message[get_size(mySocket.ReceiveMessage[0])];
     for (int i = 0; i < get_size(mySocket.ReceiveMessage[0]); i++)
     {
         message[i] = mySocket.ReceiveMessage[0][i];
@@ -242,23 +248,12 @@ ssize_t my_recv(int sockfd, void *buf, size_t len, int flags)
             mySocket.ReceiveMessage[i - 1][j] = mySocket.ReceiveMessage[i][j];
         }
     }
-    free(mySocket.ReceiveMessage[mySocket.receiveTableSize - 1]);
+    // free(mySocket.ReceiveMessage[mySocket.receiveTableSize - 1]);
     mySocket.receiveTableSize--;
-    pthread_mutex_lock(&cout);
-    printf("Inside my_recv\n");
-    printf("==============================================\n");
-    printf("Table Size => %d\n", mySocket.receiveTableSize);
-    printf("Message From Table => ");
-    for (int i = 0; i < get_size(message); i++)
-    {
-        printf("%c", message[i]);
-    }
-    printf("\n");
-    printf("==============================================\n\n");
-    pthread_mutex_unlock(&cout);
+    // printf("IN RECIEVE\n");
+    // print_table(mySocket.ReceiveMessage, mySocket.receiveTableSize);
     pthread_cond_signal(&recieveUpdated);
     pthread_mutex_unlock(&recieveBuffer);
-
     char *buffer = buf;
     int i = 0;
     while (message[i] != '#')
@@ -282,26 +277,32 @@ void *Recieve_Thread(void *params)
     char buffer[MAXSIZE];
     char *message;
     int isComplete = 0;
+    int count = 0;
     int currSize = 0, pastSize = 0;
     int messageSize = MAXSIZE;
     struct pollfd poller;
-    pthread_mutex_lock(&cout);
-    printf("Recieve Thread Started\n");
-    pthread_mutex_unlock(&cout);
-    while (mySocket.sockFDClient == 0)
-    {
-        continue;
-    }
-    poller.fd = mySocket.sockFDClient;
-    poller.events = POLLIN;
+    int poll_return = 0;
     while (1)
     {
-        if (mySocket.sockFDClient == -1)
+        pthread_mutex_lock(&recieveBuffer);
+        if (mySocket.RShouldTerminate == 1 && !poll_return)
         {
-            printf("Socket Closed\n");
+            pthread_mutex_unlock(&recieveBuffer);
+            printf("Exiting From Recieve Thread\n");
             pthread_exit(0);
         }
-        int poll_return = poll(&poller, 1, 3000);
+        if (mySocket.RshouldWait == 1 && !poll_return)
+        {
+            // printf("HELLO");
+            pthread_mutex_unlock(&recieveBuffer);
+            continue;
+        }
+        pthread_mutex_unlock(&recieveBuffer);
+
+        poller.fd = mySocket.sockFDClient;
+        poller.events = POLLIN;
+
+        poll_return = poll(&poller, 1, 3000);
         if (poll_return < 0)
         {
             perror("Unable to Poll...\n");
@@ -309,39 +310,30 @@ void *Recieve_Thread(void *params)
         }
         if (poll_return == 0)
         {
+            printf("POLLING\n");
             continue;
         }
         int n = recv(mySocket.sockFDClient, buffer, MAXSIZE, 0);
-        if (n <= 0)
+        if (n < 0)
         {
-            printf("Recieve Error on Socket %d\n", mySocket.sockFDClient);
+            // printf("Socket Error due to Socket %d returning %d", mySocket.sockFDClient, n);
             perror("Unable to Recieve");
             exit(1);
         }
-        pthread_mutex_lock(&cout);
-        printf("Recieved %d bytes\n", n);
-        pthread_mutex_unlock(&cout);
+        if (n == 0)
+        {
+            continue;
+        }
         currSize += n;
         message = (char *)realloc(message, currSize);
         for (int i = pastSize; i < currSize; i++)
         {
             message[i] = buffer[i - pastSize];
         }
-
         if (currSize >= 8)
         {
             messageSize = get_size(message);
         }
-        pthread_mutex_lock(&cout);
-        printf("Message => ");
-        for (int i = 0; i < currSize; i++)
-        {
-            printf("%c", message[i]);
-        }
-        printf("\n");
-        printf("Current Size => %d\n", currSize);
-        printf("Message Size => %d\n\n", messageSize);
-        pthread_mutex_unlock(&cout);
         while (currSize >= messageSize)
         {
             int messageSize = get_size(message);
@@ -355,43 +347,20 @@ void *Recieve_Thread(void *params)
                 message[i - messageSize] = message[i];
             }
             message = (char *)realloc(message, currSize - messageSize);
-            pthread_mutex_lock(&cout);
-            printf("Extracted Message => ");
-            for (int i = 0; i < messageSize; i++)
-            {
-                printf("%c", temp[i]);
-            }
-            printf("\n");
-            printf("Current Message => ");
-            for (int i = 0; i < currSize - messageSize; i++)
-            {
-                printf("%c", message[i]);
-            }
-            printf("\n");
-            printf("HELLLOO\n");
-            pthread_mutex_unlock(&cout);
             pthread_mutex_lock(&recieveBuffer);
             while (mySocket.receiveTableSize >= MAX_TABLE_ENTRIES)
             {
                 pthread_cond_wait(&recieveUpdated, &recieveBuffer);
             }
-            mySocket.ReceiveMessage[mySocket.receiveTableSize] = (char *)realloc(mySocket.ReceiveMessage[mySocket.receiveTableSize], get_size(temp));
+            // mySocket.ReceiveMessage[mySocket.receiveTableSize] = (char *)realloc(mySocket.ReceiveMessage[mySocket.receiveTableSize], get_size(temp));
             for (int i = 0; i < get_size(temp); i++)
             {
                 mySocket.ReceiveMessage[mySocket.receiveTableSize][i] = temp[i];
             }
             mySocket.receiveTableSize++;
+            // printf("IN RECIEVE THREAD\n");
+            // print_table(mySocket.ReceiveMessage, mySocket.receiveTableSize);
             currSize -= messageSize;
-            pthread_mutex_lock(&cout);
-            printf("Message in Table => ");
-            for (int i = 0; i < get_size(temp); i++)
-            {
-                printf("%c", mySocket.ReceiveMessage[mySocket.receiveTableSize - 1][i]);
-            }
-            printf("\n");
-            printf("Table Size => %d\n", mySocket.receiveTableSize);
-            printf("\n\n");
-            pthread_mutex_unlock(&cout);
             pthread_cond_signal(&recieveUpdated);
             pthread_mutex_unlock(&recieveBuffer);
             if (currSize < 8)
@@ -402,28 +371,29 @@ void *Recieve_Thread(void *params)
         pastSize = currSize;
     }
 }
-
 void *Send_Thread(void *params)
 {
-    printf("Send Thread Started\n");
     while (1)
     {
-        sleep(5);
-        if (mySocket.sockFDClient == 0)
-            continue;
-        if (mySocket.sockFDClient == -1)
+        sleep(2);
+        pthread_mutex_lock(&sendBuffer);
+        if (mySocket.SShouldTerminate == 1)
         {
-            printf("Socke   t Closed\n");
+            pthread_mutex_unlock(&sendBuffer);
+            printf("Exiting From Send Thread\n");
             pthread_exit(0);
         }
-        pthread_mutex_lock(&sendBuffer);
-        while (mySocket.sendTableSize < 1)
+        if (mySocket.SshouldWait == 1)
+        {
+            pthread_mutex_unlock(&sendBuffer);
+            continue;
+        }
+        while (mySocket.sendTableSize < 1 && mySocket.SShouldTerminate == 0 && mySocket.SshouldWait == 0)
         {
             pthread_cond_wait(&SendUpdated, &sendBuffer);
         }
-        pthread_mutex_lock(&cout);
-        printf("Inside Send_Thread\n");
-        printf("==============================================\n");
+        // printf("IN SEND THREAD\n");
+        // print_table(mySocket.SendMessage, mySocket.sendTableSize);
         for (int i = 0; i < mySocket.sendTableSize; i++)
         {
             char *message = mySocket.SendMessage[i];
@@ -437,17 +407,11 @@ void *Send_Thread(void *params)
                 {
                     buffer[i] = message[curr++];
                 }
-                printf("Message Sent => ");
-                for (int j = 0; j < i; j++)
-                    printf("%c", buffer[j]);
-                printf("\n");
                 send(mySocket.sockFDClient, buffer, i, 0);
             }
-            free(mySocket.SendMessage[i]);
+            // free(mySocket.SendMessage[i]);
         }
         mySocket.sendTableSize = 0;
-        printf("==============================================\n\n");
-        pthread_mutex_unlock(&cout);
         pthread_cond_signal(&SendUpdated);
         pthread_mutex_unlock(&sendBuffer);
     }

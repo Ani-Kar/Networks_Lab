@@ -14,7 +14,6 @@ int main()
     Server_Addr.sin_port = htons(20000);
 
     my_connect(sockfd, (struct sockaddr *)&Server_Addr, sizeof(Server_Addr));
-
     char *message = "Hello World";
     my_send(sockfd, message, strlen(message)+1, 0);
     printf("Message Sent\n");
@@ -33,5 +32,15 @@ int main()
     message = "Hello World_5";
     my_send(sockfd, message, strlen(message)+1, 0); 
     printf("Message Sent\n");
+    char input[100];
+    my_recv(sockfd, input, 100, 0);
+    printf("Message Recieved_==>  %s\n",input);
+    my_recv(sockfd, input, 100, 0);
+    printf("Message Recieved_==>  %s\n",input);
+    my_recv(sockfd, input, 100, 0);
+    printf("Message Recieved_==>  %s\n",input);
+    my_recv(sockfd, input, 100, 0);
+    printf("Message Recieved_==>  %s\n",input);
     my_close(sockfd);
+
 }
