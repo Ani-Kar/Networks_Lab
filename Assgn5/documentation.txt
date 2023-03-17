@@ -1,0 +1,176 @@
+                                                    CS39006 - NETWORKS LABORATORY
+                                                INDIAN INSTITUTE OF TECHNOLOGY KHARAGPUR
+                                             DEPARTMENT OF COMPUTER SCIENCE AND ENGINEERING
+                                                        Laboratory Assignment 5
+                                                                Authors:
+                                                       Aniket Kumar (20CS10083)
+                                                       Tanmay Mohanty (20CS10089)
+
+
+Date: March 17, 2023
+
+                                                    Data Structures Used in the Assignment:
+
+                                                                mysocket.h:-
+
+struct MySocket_Struct {
+    int sockFDServer ;
+    int sockFDClient ;
+    int isServer ;
+    pthread_t R , S ;
+    char ** SendMessage , ** ReceiveMessage ;
+    int sendTableSize ;
+    int receiveTableSize ;
+    int RShouldTerminate , SShouldTerminate ;
+    int RshouldWait , SshouldWait ;
+};
+
+
+1. sockFDServer: socket file descriptor for server
+
+2. sockFDClient: socket file descriptor for client
+
+3. isServer: boolean variable for storing it as server or not
+
+4. R / S: sender and reciever threads
+
+5. SendMessage: table to store messages to send
+
+6. ReceiveMessage: table to store messages that are received
+
+7. sendTableSize: size of SendMessage above
+
+8. receiveTableSize: size of ReceiveMessage above
+
+9. RShouldTerminate / SShouldTerminate: boolean variable to be used as a flag to decide the termination of the R or S thread
+
+10. RshouldWait / SshouldWait: boolean variable to be used as a flag to denote R or S thread should wait
+
+Apart from this We maintain only 2 locks, 1 on each of the buffers, and have 2 Conditional Signals which are broadcasted 
+when any update is made in the respective table.
+
+
+                                                                mysocket.c:-
+
+
+1. int my socket(int domain, int type, int protocol);
+    We create the socket and assign it to the server along with initializing all other
+    variables. We also allocate space for the ReceiveMessage and SendMessage tables.
+    The R and S threads are also created in this function. We also set the initial state
+    of the threads to sleep as they must wait for a client to be accepted or to connect
+    to the server in which case the state is set to active.
+
+2. int my bind(int sockfd, const struct sockaddr *addr,socklen t addrlen);
+    This function is used to bind the socket to the address passed to it.
+
+3. int my listen(int sockfd, int backlog);
+    This function is used to listen at the socket created.
+
+4. int my accept(int sockfd, struct sockaddr *addr, socklen t *addrlen);
+    The function is used to accept the connection request at the socket and relay it to
+    the client. Sets the state of the threads to active
+
+5. int my connect(int sockfd, const struct sockaddr *addr,socklen t addrlen);
+    This is used to open a connection request to the socket, and sets the state of the
+    threads to active.
+
+6. ssize t my recv(int sockfd, void *buf, size t len, int flags);
+    It is used to bring out a message out of the ReceiveMessage table if it is non-empty.
+    More details are discussed below.
+
+7. ssize t my send(int sockfd, const void *buf, size t len, int flags);
+    It is used to put the message is proper format and put the message into the
+    SendMessage table if it is not full. More details are discussed below.
+
+8. int my close(int fd);
+    The my close Function starts by identifying if the socket being closed is the same
+    socket returned by my socket function if this is the case it calls for the termination
+    of the threads after any incoming message is fully received and the send table is
+    empty, if this is not the case the my close thread calls for the sleep of the threads
+    until a new user is accepted, this call also ensures that the receive table is empty
+    and the send table has finished sending all its data.
+
+9. void* Receive Thread(void* params);
+    • After initialising the variables, we lock the critical accessing the ReceiveMessage
+        table and receiveTable size, through mutex locks, inside a loop
+    • If the flag to terminate the R thread is true, then we release the lock and exit
+        from the thread
+    • If the flag to wait is true for the R thread, we wait at the function, and release
+        the lock
+    • After polling, we receive the message from the server as a stream of TCP
+        packets
+    • We then add the received message from the buffer to a local message array
+    • We again lock the critical section accesing the ReceiveMessage table and receiveTable
+        size
+    • We also wait on the conditional variable receiveUpdated, till the point the
+        ReceiveMessage table is full
+
+10. void* Send Thread(void* params);
+    • We first check if the State of the threads is either sleep or terminate if this is
+        the case and the table is empty we go into the state of sleep or terminate.
+    • If this is not the case we do a Conditional Wait on the Lock for the Send
+        Table, the condition is set to the number of entries in the table to be ¿= 1.
+    • Once the Condition is satisfied and the Lock is acquired we enter the critical
+        section and send all the messages in the table, and empty the table.
+    • After this the Send Thread goes to sleep for 2 seconds and the process repeats
+        all over again.
+
+11. int get size(char * message);
+    This function is used to return the size of the message after excluding the hashes
+    we have incorporated in our message format.
+
+
+                                                            Flow of functions
+
+
+my send:-
+
+1. Our message in the buffer is converted into the following format:
+    • Size of message
+    • Four #’s
+    • Character sequence of the message
+    • Four #’s
+
+2. We now lock the critical section accessing the SendMessage table, and also wait
+   on the conditional variable SendUpdated, which is signalled upon updation of the 
+   SendMessage table. This wait is done till the point when the SendMessage table
+   is full
+
+3. Now we add the new message to the SendMessage table
+
+4. We increment the size of SendMessage table
+
+5. Finally we signal the updation of the SendMessage table, and release the lock on
+   the critical section.
+
+6. We are returning the length passed into the function, corresponding to the length
+   of the message buffer 
+
+my recv:-
+
+
+1. We lock the critical section accessing the ReceiveMessage table
+
+2. We also wait on the conditional variable receiveUpdated which is signalled upon
+   the updation of the ReceiveMessage table. This is done only till the point the
+   ReceiveMessage table is empty
+
+3. We take out the first message out of the ReceiveMessage table and erase its space
+   in the ReceiveMessage table, along with shifting each message up by one index in
+   the table
+
+4. We then decrement the size of the ReceiveMessage table
+
+5. We also signal the updation of the ReceiveMessage table and release the lock on
+   the critical section
+
+6. Our message format that was created was as follows:
+    • Size of message
+    • Four #’s
+    • Character sequence of the message
+    • Four #’s
+
+7. We take out the size and the message out of the format
+
+8. We update the message into the buffer and return the minimum of size of the
+   message or the size of the buffer
