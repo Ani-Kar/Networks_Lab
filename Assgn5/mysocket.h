@@ -56,8 +56,6 @@ void* Send_Thread(void* params);
 
 int get_size(char * message);
 
-char *extractMessage(char *message, int currSize);
-
 #endif
 
 
