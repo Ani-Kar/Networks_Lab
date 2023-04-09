@@ -21,6 +21,8 @@
 #include <netinet/in.h>
 #include <netinet/ip.h>
 #include <netinet/ip_icmp.h>
+#include <netinet/tcp.h>
+#include <netinet/udp.h>
 #include <netinet/in_systm.h>
 #include <net/if.h>
 #include <ifaddrs.h>
@@ -132,8 +134,7 @@ char *niLookup(int ni_family, struct sockaddr_in *addr)
     {
         if (it->ifa_addr != NULL && it->ifa_addr->sa_family == ni_family && !(it->ifa_flags & IFF_LOOPBACK) && (it->ifa_flags & IFF_RUNNING))
         {
-            if (addr != NULL)
-            {
+            if (addr != NULL){
                 addr->sin_family = ((struct sockaddr_in *)it->ifa_addr)->sin_family;
                 addr->sin_port = ((struct sockaddr_in *)it->ifa_addr)->sin_port;
                 addr->sin_addr = ((struct sockaddr_in *)it->ifa_addr)->sin_addr;
@@ -177,6 +178,39 @@ void printICMP(struct icmphdr *icmp){
         printf("ID:%-6d                                         Sequence:%-6d\n", icmp->un.echo.id, icmp->un.echo.sequence);
     printf("*****************************************************************\n\n");
 }
+
+void printTCP(struct tcphdr *tcp){
+
+    printf("                            TCP HEADER                           \n");
+    printf("*****************************************************************\n");
+    printf("                         Source Port: %-5d                       \n", ntohs(tcp->th_sport));
+    printf("                      Destination Port: %-5d                     \n", ntohs(tcp->th_dport));
+    printf("       Sequence Number: %u       Acknowledgment Number: %u       \n", ntohl(tcp->th_seq), ntohl(tcp->th_ack));
+    printf("         Header Length: %d bytes         Window Size: %d         \n", tcp->th_off * 4, ntohs(tcp->th_win));
+    printf("Flags: ");
+    if (tcp->th_flags & TH_SYN) printf("SYN ");
+    if (tcp->th_flags & TH_ACK) printf("ACK ");
+    if (tcp->th_flags & TH_FIN) printf("FIN ");
+    if (tcp->th_flags & TH_RST) printf("RST ");
+    if (tcp->th_flags & TH_PUSH) printf("PSH ");
+    if (tcp->th_flags & TH_URG) printf("URG ");
+    printf("\n");
+    printf("          Checksum: 0x%04X          Urgent Pointer: %d          \n", ntohs(tcp->th_sum), ntohs(tcp->th_urp));
+    printf("*****************************************************************\n");
+    
+}
+
+void printUDP(struct udphdr* udp) {
+
+    printf("                            UDP HEADER                           \n");
+    printf("*****************************************************************\n");
+    printf("                        Source Port: %-5d                        \n", ntohs(udp->uh_sport));
+    printf("                     Destination Port: %-5d                      \n", ntohs(udp->uh_dport));
+    printf("           Length: %d bytes           Checksum: 0x%04X           \n", ntohs(udp->uh_ulen), ntohs(udp->uh_sum));
+    printf("*****************************************************************\n");
+}
+
+
 
 double calc_bandwidth(double t1, double t2, int d1, int d2, int cumm_prev_time){
     double temp = (d2 - d1)/(double)(t2 - t1 - cumm_prev_time);
@@ -305,7 +339,7 @@ int main(int argc, char *argv[])
         float rtt_avg1 = -1;
 
         char *buffer2 = (char *)malloc(MAX_SIZE*sizeof(char));
-        char msg2[]="Hello World";
+        char msg2[]="Connect";
         uint16_t tot_len2 = create_packet(buffer2, msg2, src_ip, dest_ip, ttl);
         
         float rtt_avg2 = -1;
@@ -354,6 +388,8 @@ int main(int argc, char *argv[])
 
             struct iphdr *ip_reply = (struct iphdr *)recv_buffer;            
             struct icmphdr *icmp_reply = (struct icmphdr *)(recv_buffer + sizeof(struct iphdr));
+            struct tcphdr *tcp_reply = (struct tcphdr *)(recv_buffer + sizeof(struct iphdr));
+            struct udphdr *udp_reply = (struct udphdr *)(recv_buffer + sizeof(struct iphdr));
             char *data_reply = recv_buffer + sizeof(struct iphdr) + sizeof(struct icmphdr);
 
             // second packet
@@ -400,18 +436,29 @@ int main(int argc, char *argv[])
             rtt_avg2 = (rtt_avg2 < 0) ? rtt_m2 : (1 - ALPHA) * rtt_avg2 + ALPHA * rtt_m2;
 
             ip_reply = (struct iphdr *)recv_buffer;            
-            icmp_reply = (struct icmphdr *)(recv_buffer + sizeof(struct iphdr));
             data_reply = recv_buffer + sizeof(struct iphdr) + sizeof(struct icmphdr);
             
             printIP(ip_reply);
-            printICMP(icmp_reply);
+
+            if(ip_reply->protocol == 1){
+                icmp_reply = (struct icmphdr *)(recv_buffer + sizeof(struct iphdr));
+                printICMP(icmp_reply);
+            }else if(ip_reply->protocol == 6){
+                tcp_reply = (struct tcphdr *)(recv_buffer + sizeof(struct iphdr));
+                printTCP(tcp_reply);
+            }else if(ip_reply->protocol == 17){
+                udp_reply = (struct udphdr *)(recv_buffer + sizeof(struct iphdr));
+                printUDP(udp_reply);
+            }else{
+                printf("Replied packet not identified\n");
+            }
 
             if(icmp_reply->type == ICMP_ECHOREPLY)  ending = 1;
         }
 
 
         printf("*****************************************************************\n");
-        printf("HOP => %d       Average RTT => Packet1: %lf us    Packet2: %lf us\n", ttl, rtt_avg1, rtt_avg2);
+        printf("HOP => %d     Average RTT => Packet1: %lf us    Packet2 => %lf us\n", ttl, rtt_avg1, rtt_avg2);
         double latency = rtt_avg1 - cumm_prev_latency;
         printf("Link Latency => %lf\n", latency);
         cumm_prev_latency += latency;
